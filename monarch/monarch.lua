@@ -99,6 +99,39 @@ local function cowait(screen, delay)
 end
 
 
+-- def-arch: showq() is our extension, kept from the pre-6.0.1 vendored copy.
+-- Upstream dropped it; screen/screen_settings.gui_script relies on it to
+-- serialize sequential popup shows without racing the internal action queue.
+local showq = {}
+
+local function showq_get(id)
+	showq[id] = showq[id] or { busy = false, items = {} }
+	return showq[id]
+end
+
+local function showq_next(id)
+	local q = showq[id]; if not q or not q.busy then return end
+	table.remove(q.items, 1)
+	if #q.items == 0 then q.busy = false return end
+	local it = q.items[1]
+	M.show(it.id, it.options, it.data, it.cb)
+end
+
+function M.showq(id, options, data, cb)
+	assert(id, "You must provide a screen id")
+	id = tohash(id)
+	assert(screens[id], ("There is no screen registered with id %s"):format(tostring(id)))
+
+	local q = showq_get(id)
+	q.items[#q.items + 1] = { id = id, options = options, data = data, cb = cb }
+	if q.busy then return true end
+
+	q.busy = true
+	local it = q.items[1]
+	M.show(it.id, it.options, it.data, it.cb)
+	return true
+end
+
 
 local queue = {}
 
@@ -623,6 +656,7 @@ local function show_out(screen, next_screen, wait_for_transition, cb)
 		end
 		active_transition_count = active_transition_count - 1
 		notify_transition_listeners(M.SCREEN_TRANSITION_OUT_FINISHED, { screen = screen.id, next_screen = next_screen.id })
+		if screen.popup then timer.delay(0, false, function() showq_next(screen.id) end) end
 	end)
 end
 
@@ -707,6 +741,7 @@ local function back_out(screen, next_screen, wait_for_transition, cb)
 		unload(screen)
 		active_transition_count = active_transition_count - 1
 		notify_transition_listeners(M.SCREEN_TRANSITION_OUT_FINISHED, { screen = screen.id, next_screen = next_screen and next_screen.id })
+		if screen.popup then timer.delay(0, false, function() showq_next(screen.id) end) end
 	end)
 end
 
