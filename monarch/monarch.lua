@@ -656,7 +656,12 @@ local function show_out(screen, next_screen, wait_for_transition, cb)
 		end
 		active_transition_count = active_transition_count - 1
 		notify_transition_listeners(M.SCREEN_TRANSITION_OUT_FINISHED, { screen = screen.id, next_screen = next_screen.id })
-		if screen.popup then timer.delay(0, false, function() showq_next(screen.id) end) end
+		-- def-arch local patch (T-106): upstream guards this with `if screen.popup`, so a
+		-- screen with popup = false never gets showq_next() and its `q.busy` is never
+		-- cleared - every later showq() for that id is silently swallowed for the rest of
+		-- the session. showq_next() is a no-op while the queue is not busy, so running it
+		-- for every screen is safe. rich-life-sim carries the same patch as T-047.
+		timer.delay(0, false, function() showq_next(screen.id) end)
 	end)
 end
 
@@ -741,7 +746,12 @@ local function back_out(screen, next_screen, wait_for_transition, cb)
 		unload(screen)
 		active_transition_count = active_transition_count - 1
 		notify_transition_listeners(M.SCREEN_TRANSITION_OUT_FINISHED, { screen = screen.id, next_screen = next_screen and next_screen.id })
-		if screen.popup then timer.delay(0, false, function() showq_next(screen.id) end) end
+		-- def-arch local patch (T-106): upstream guards this with `if screen.popup`, so a
+		-- screen with popup = false never gets showq_next() and its `q.busy` is never
+		-- cleared - every later showq() for that id is silently swallowed for the rest of
+		-- the session. showq_next() is a no-op while the queue is not busy, so running it
+		-- for every screen is safe. rich-life-sim carries the same patch as T-047.
+		timer.delay(0, false, function() showq_next(screen.id) end)
 	end)
 end
 
