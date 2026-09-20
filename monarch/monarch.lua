@@ -99,9 +99,11 @@ local function cowait(screen, delay)
 end
 
 
--- def-arch: showq() is our extension, kept from the pre-6.0.1 vendored copy.
--- Upstream dropped it; screen/screen_settings.gui_script relies on it to
--- serialize sequential popup shows without racing the internal action queue.
+-- def-arch: showq() is our extension, kept from the pre-6.0.1 vendored copy, and
+-- upstream dropped it. It is a queue per screen id: the next show of that id waits
+-- until the one on screen has really left the stack, which is how a game shows a run
+-- of cards of the same kind (unlocks, rewards) without any of them being replaced.
+-- Own code reaches it through facades/screens.lua (ADR-024), never directly.
 local showq = {}
 
 local function showq_get(id)
@@ -130,6 +132,19 @@ function M.showq(id, options, data, cb)
 	local it = q.items[1]
 	M.show(it.id, it.options, it.data, it.cb)
 	return true
+end
+
+--- def-arch local patch (T-106): forget the shows waiting in a showq queue.
+-- A queue is invisible from outside, so without this a screen shown any other way, or
+-- a cleared stack, leaves cards that pop up later over whatever is on screen by then.
+-- The card already on the stack is not touched: it is a screen like any other.
+-- @param id (string|hash|nil) - the queue to forget; every queue when nil
+function M.showq_clear(id)
+	if id == nil then
+		showq = {}
+		return
+	end
+	showq[tohash(id)] = nil
 end
 
 
@@ -967,6 +982,10 @@ function M.clear(cb)
 
 	queue_action(function(action_done, action_error)
 		async(function(await, resume)
+			-- def-arch local patch (T-106): an empty stack means nothing is coming either,
+			-- so the waiting shows go before the screens do - popping them below would
+			-- otherwise advance every queue and put its next card on the cleared stack.
+			M.showq_clear()
 			local top = stack[#stack]
 			while top and top.visible do
 				stack[#stack] = nil
