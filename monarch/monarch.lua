@@ -981,25 +981,35 @@ function M.clear(cb)
 	log("clear() queuing action")
 
 	queue_action(function(action_done, action_error)
-		async(function(await, resume)
-			-- def-arch local patch (T-106): an empty stack means nothing is coming either,
-			-- so the waiting shows go before the screens do - popping them below would
-			-- otherwise advance every queue and put its next card on the cleared stack.
-			M.showq_clear()
-			local top = stack[#stack]
-			while top and top.visible do
-				stack[#stack] = nil
-				await(back_out, top, stack[#stack - 1], WAIT_FOR_TRANSITION, resume)
-				top = stack[#stack]
-			end
+		-- fork patch (2026-10-04, found in energy_city): clear() runs in a coroutine of its
+		-- own, as show() does. async() reuses the running coroutine, and a clear() queued
+		-- behind a transition is started by that transition's done callback - inside another
+		-- screen's coroutine and under pcall (pcallfn, process_queue). Its await() then
+		-- yields across pcall: LuaJIT on desktop allows that, Lua 5.1 in HTML5 fails with
+		-- "attempt to yield across metamethod/C-call boundary", the queue is dropped and cb
+		-- never runs (settings "reset all" after its confirm popup did nothing on the web).
+		local co = coroutine.create(function()
+			async(function(await, resume)
+				-- def-arch local patch (T-106): an empty stack means nothing is coming either,
+				-- so the waiting shows go before the screens do - popping them below would
+				-- otherwise advance every queue and put its next card on the cleared stack.
+				M.showq_clear()
+				local top = stack[#stack]
+				while top and top.visible do
+					stack[#stack] = nil
+					await(back_out, top, stack[#stack - 1], WAIT_FOR_TRANSITION, resume)
+					top = stack[#stack]
+				end
 
-			while stack[#stack] do
-				table.remove(stack)
-			end
+				while stack[#stack] do
+					table.remove(stack)
+				end
 
-			pcallfn(cb)
-			pcallfn(action_done)
+				pcallfn(cb)
+				pcallfn(action_done)
+			end)
 		end)
+		assert(coroutine.resume(co))
 	end)
 end
 
